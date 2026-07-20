@@ -108,7 +108,7 @@ class Config:
     DEFAULT_VERBOSE = False
 
     """默认域名"""
-    DOMAINS = ["glados.cloud", "railgun.info"]
+    DOMAINS = ["glados.cloud"]
 
     """兑换计划列表"""
     EXCHANGE_PLANS = {
@@ -596,17 +596,32 @@ class Checker:
 
         title = f"GLaDOS 签到, 成功{success_count}, 失败{fail_count}, 重复{repeat_count}"
 
+        # 全部失败时，标题直接提示 Cookie 可能失效
+        if fail_count > 0 and success_count == 0 and repeat_count == 0:
+            title = f"GLaDOS 签到失败（Cookie 可能已失效）, 失败{fail_count}"
+
         send_content_lines = []
         log_content_lines = []
         for i, res in enumerate(results, 1):
-            line = f"#{i} P:{res['points']} 剩余:{res['days']} 总积分:{res['points_total']} | {res['status']} | {res['exchange']}"
+            line = (
+                f"#{i} [{res.get('domain', '')}] P:{res['points']} 剩余:{res['days']} "
+                f"总积分:{res['points_total']} | {res['status']} | {res['exchange']}"
+            )
             send_content_lines.append(line)
 
             if self.config.verbose:
                 log_line = line
             else:
-                log_line = f"#{i} {res['status']}"
+                log_line = f"#{i} [{res.get('domain', '')}] {res['status']}"
             log_content_lines.append(log_line)
+
+        if fail_count > 0 and success_count == 0 and repeat_count == 0:
+            send_content_lines.append("")
+            send_content_lines.append("⚠️ Cookie 可能已失效/过期，或登录态无效。")
+            send_content_lines.append(
+                "请重新登录 https://glados.cloud 后更新 GLADOS_COOKIES（GitHub Secret / 本地 .env）。"
+            )
+            log_content_lines.append("Cookie 可能已失效，请更新 GLADOS_COOKIES")
 
         content = "\n".join(send_content_lines)
         log_content = "\n".join(log_content_lines)
@@ -626,7 +641,13 @@ def main():
 
         if not config.cookies_list:
             logger.error(f"{LogEmoji.ERROR} 未找到有效的 Cookie, 退出程序。")
-            title, content = "# 未找到 cookies!", ""
+            title = "GLaDOS 签到失败（Cookie 未配置或已失效）"
+            content = (
+                "未找到有效的 GLADOS_COOKIES。\n"
+                "请重新登录 https://glados.cloud ，复制 Cookie 后更新：\n"
+                "1) GitHub Secret: GLADOS_COOKIES\n"
+                "2) 本地 .env: GLADOS_COOKIES=..."
+            )
         else:
             # 2. 执行签到
             logger.info(f"{LogEmoji.START} 步骤 2: 执行签到")
