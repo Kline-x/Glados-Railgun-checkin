@@ -98,6 +98,8 @@ class Config:
     ENV_COOKIES = "GLADOS_COOKIES"
     ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
     ENV_VERBOSE = "GLADOS_VERBOSE"
+    ENV_WEBHOOK_URL = "NOTIFY_WEBHOOK_URL"
+    ENV_WEBHOOK_TYPE = "NOTIFY_WEBHOOK_TYPE"  # auto|generic|feishu|dingtalk|wecom|discord
 
     """默认兑换计划"""
     DEFAULT_EXCHANGE_PLAN = "plan500"
@@ -117,6 +119,8 @@ class Config:
 
     def __init__(self):
         self.push_key: str = ""
+        self.webhook_url: str = ""
+        self.webhook_type: str = "auto"
         self.cookies_list: List[str] = []
         self.exchange_plan: str = self.DEFAULT_EXCHANGE_PLAN
         self.verbose: bool = self.DEFAULT_VERBOSE
@@ -125,6 +129,8 @@ class Config:
     def _load_config(self) -> None:
         """加载配置"""
         push_key_env: Optional[str] = os.environ.get(self.ENV_PUSH_KEY)
+        webhook_url_env: Optional[str] = os.environ.get(self.ENV_WEBHOOK_URL)
+        webhook_type_env: Optional[str] = os.environ.get(self.ENV_WEBHOOK_TYPE)
         raw_cookies_env: Optional[str] = os.environ.get(self.ENV_COOKIES)
         exchange_plan_env: Optional[str] = os.environ.get(self.ENV_EXCHANGE_PLAN)
         verbose_env: Optional[str] = os.environ.get(self.ENV_VERBOSE)
@@ -134,6 +140,25 @@ class Config:
             self.push_key = ""
         else:
             self.push_key = push_key_env
+
+        if not webhook_url_env:
+            logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_WEBHOOK_URL}' 未设置。")
+            self.webhook_url = ""
+        else:
+            self.webhook_url = webhook_url_env.strip()
+
+        allowed_webhook_types = {"auto", "generic", "feishu", "dingtalk", "wecom", "discord"}
+        if not webhook_type_env:
+            self.webhook_type = "auto"
+        else:
+            webhook_type = webhook_type_env.strip().lower()
+            if webhook_type in allowed_webhook_types:
+                self.webhook_type = webhook_type
+            else:
+                logger.warning(
+                    f"{LogEmoji.WARNING} 环境变量 '{self.ENV_WEBHOOK_TYPE}' 的值 '{webhook_type_env}' 无效，将使用 auto。"
+                )
+                self.webhook_type = "auto"
 
         if not raw_cookies_env:
             logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_COOKIES}' 未设置。")
@@ -156,6 +181,8 @@ class Config:
 
         logger.info(f"{LogEmoji.INFO} 共加载了 {len(self.cookies_list)} 个 Cookie 用于签到。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_PUSH_KEY} {'已设置' if push_key_env else '未设置'}。")
+        logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_WEBHOOK_URL} {'已设置' if webhook_url_env else '未设置'}。")
+        logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_WEBHOOK_TYPE}: {self.webhook_type}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_EXCHANGE_PLAN}: {self.exchange_plan}。")
 
         if verbose_env is not None:
@@ -391,24 +418,95 @@ class CheckinResult:
 
 
 class PushService:
-    """推送服务"""
+    """推送服务：PushDeer + Webhook"""
 
     def __init__(self, config: Config):
-        self.config = config
+        self.config = config if isinstance(config, Config) else Config()
 
     def send(self, title: str, content: str) -> bool:
-        """发送推送"""
-        if not self.config.push_key:
-            logger.info(f"{LogEmoji.WARNING} 未设置推送密钥，跳过推送通知。")
-            return False
+        """发送推送（任一通道成功即视为成功）"""
+        ok_any = False
+        has_channel = False
 
+        if self.config.push_key:
+            has_channel = True
+            ok_any = self._send_pushdeer(title, content) or ok_any
+        else:
+            logger.info(f"{LogEmoji.WARNING} 未设置 PushDeer 密钥，跳过 PushDeer 推送。")
+
+        if self.config.webhook_url:
+            has_channel = True
+            ok_any = self._send_webhook(title, content) or ok_any
+        else:
+            logger.info(f"{LogEmoji.WARNING} 未设置 Webhook URL，跳过 Webhook 推送。")
+
+        if not has_channel:
+            logger.info(f"{LogEmoji.WARNING} 未配置任何通知通道（PUSHDEER_SENDKEY / NOTIFY_WEBHOOK_URL）。")
+            return False
+        return ok_any
+
+    def _send_pushdeer(self, title: str, content: str) -> bool:
         try:
             pushdeer = PushDeer(pushkey=self.config.push_key)
             pushdeer.send_text(title, desp=content)
-            logger.info(f"{LogEmoji.SUCCESS} 推送通知发送成功。")
+            logger.info(f"{LogEmoji.SUCCESS} PushDeer 推送发送成功。")
             return True
         except Exception as e:
-            logger.error(f"{LogEmoji.ERROR} 发送推送通知失败: {e}")
+            logger.error(f"{LogEmoji.ERROR} PushDeer 推送失败: {e}")
+            return False
+
+    def _detect_webhook_type(self, url: str) -> str:
+        lower = url.lower()
+        if "feishu.cn" in lower or "larksuite.com" in lower or "open.feishu" in lower:
+            return "feishu"
+        if "oapi.dingtalk.com" in lower:
+            return "dingtalk"
+        if "qyapi.weixin.qq.com" in lower:
+            return "wecom"
+        if "discord.com/api/webhooks" in lower or "discordapp.com/api/webhooks" in lower:
+            return "discord"
+        return "generic"
+
+    def _build_webhook_payload(self, title: str, content: str, webhook_type: str) -> Dict[str, object]:
+        text = f"{title}\n{content}".strip() if content else title
+        if webhook_type == "feishu":
+            return {"msg_type": "text", "content": {"text": text}}
+        if webhook_type == "dingtalk":
+            return {"msgtype": "text", "text": {"content": text}}
+        if webhook_type == "wecom":
+            return {"msgtype": "text", "text": {"content": text}}
+        if webhook_type == "discord":
+            # Discord content max 2000 chars
+            return {"content": text[:2000]}
+        # generic: useful for custom services / n8n / make / custom bot
+        return {
+            "title": title,
+            "content": content,
+            "text": text,
+            "message": text,
+            "source": "Glados-Railgun-checkin",
+        }
+
+    def _send_webhook(self, title: str, content: str) -> bool:
+        url = self.config.webhook_url
+        webhook_type = self.config.webhook_type
+        if webhook_type == "auto":
+            webhook_type = self._detect_webhook_type(url)
+
+        payload = self._build_webhook_payload(title, content, webhook_type)
+        headers = {"Content-Type": "application/json; charset=utf-8", "User-Agent": "Glados-Railgun-checkin/1.0"}
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=(10, 30))
+            if not resp.ok:
+                logger.error(
+                    f"{LogEmoji.ERROR} Webhook 推送失败: HTTP {resp.status_code}, body={resp.text[:300]}"
+                )
+                return False
+            logger.info(f"{LogEmoji.SUCCESS} Webhook 推送发送成功（type={webhook_type}, status={resp.status_code}）。")
+            return True
+        except Exception as e:
+            logger.error(f"{LogEmoji.ERROR} Webhook 推送异常: {e}")
             return False
 
 

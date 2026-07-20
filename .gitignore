@@ -16,9 +16,11 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# Logs
-logs
+# Logs / local deploy artifacts
+logs/
 *.log
+gh-auth-log.txt
+PROGRESS.md
 
 # Build
 build/
