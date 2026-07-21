@@ -9,8 +9,8 @@ on:
       - 'imgs/**'
       - 'docs/**'
   schedule:
-    # Beijing 09:00 / 12:00 = UTC 01:00 / 04:00
-    - cron: '0 1,4 * * *'
+    # Test: Beijing 18:30 = UTC 10:30
+    - cron: '30 10 * * *'
 
 jobs:
   build:
