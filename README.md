@@ -77,9 +77,9 @@
 
 本项目不保证稳定运行与更新, 因GitHub相关规定可能会删库, 请注意备份
 
+## 定时不触发？
 
+GitHub Actions 的 `schedule` 在 fork 仓库上经常延迟或不跑。`push` / 手动 Run 正常时，请改用外部定时：
 
-
-
-
-
+- 说明： [docs/EXTERNAL_CRON.md](docs/EXTERNAL_CRON.md)
+- 本机触发： `scripts/trigger-checkin.ps1`

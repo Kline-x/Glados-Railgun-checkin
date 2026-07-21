@@ -1,15 +1,18 @@
 name: auto check
 
 on:
+  # Reliable: manual button OR external cron calling workflow_dispatch API
   workflow_dispatch:
   push:
     branches: [ master, main ]
     paths-ignore:
       - 'README.md'
       - 'imgs/**'
+      - 'docs/**'
+  # Best-effort only on GitHub free forks; may delay or skip
   schedule:
-    # Stable daily: UTC 08:30 = SGT 16:30 (do not change for 24h)
-    - cron: '30 8 * * *'
+    # SGT 12:05 / 18:05 = UTC 04:05 / 10:05
+    - cron: '5 4,10 * * *'
 
 jobs:
   build:
