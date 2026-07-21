@@ -8,8 +8,8 @@ on:
       - 'README.md'
       - 'imgs/**'
   schedule:
-    # UTC 04:05 / 10:05 (SGT 12:05 / 18:05); re-register schedule after fork
-    - cron: '5 4,10 * * *'
+    # Test: SGT 14:40 = UTC 06:40
+    - cron: '40 6 * * *'
 
 jobs:
   build:
