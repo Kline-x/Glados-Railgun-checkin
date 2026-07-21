@@ -8,40 +8,33 @@ on:
       - 'README.md'
       - 'imgs/**'
   schedule:
-    # Test: SGT 14:59 = UTC 06:59
-    - cron: '59 6 * * *'
+    # Stable daily: UTC 08:30 = SGT 16:30 (do not change for 24h)
+    - cron: '30 8 * * *'
 
 jobs:
   build:
     name: glados/railgun checkin
     runs-on: ubuntu-latest
-      
     permissions:
       contents: read
       actions: write
-
     strategy:
       matrix:
         python-version: [3.13]
-
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
     - name: Checkout Code
       uses: actions/checkout@v6
-
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests
         pip install pypushdeer
-
     - name: Running checkin
       run: |
         python checkin.py
@@ -52,10 +45,8 @@ jobs:
         GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
         GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
         GLADOS_VERBOSE: ${{ secrets.GLADOS_VERBOSE }}
-
     - name: Keep alive
       uses: liskin/gh-workflow-keepalive@v1
-
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@v2
       with:
