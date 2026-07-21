@@ -79,7 +79,6 @@
 
 ## 定时不触发？
 
-GitHub Actions 的 `schedule` 在 fork 仓库上经常延迟或不跑。`push` / 手动 Run 正常时，请改用外部定时：
+GitHub `schedule` 在 **fork** 上经常不跑；上游原仓库正常。
 
-- 说明： [docs/EXTERNAL_CRON.md](docs/EXTERNAL_CRON.md)
-- 本机触发： `scripts/trigger-checkin.ps1`
+请优先阅读：**[docs/GITHUB_SCHEDULE.md](docs/GITHUB_SCHEDULE.md)**（纯 GitHub 方案：设置检查 / 新建非 Fork 仓库）。

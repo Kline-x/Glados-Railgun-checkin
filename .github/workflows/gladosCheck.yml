@@ -1,7 +1,6 @@
 name: auto check
 
 on:
-  # Reliable: manual button OR external cron calling workflow_dispatch API
   workflow_dispatch:
   push:
     branches: [ master, main ]
@@ -9,35 +8,41 @@ on:
       - 'README.md'
       - 'imgs/**'
       - 'docs/**'
-  # Best-effort only on GitHub free forks; may delay or skip
   schedule:
-    # SGT 12:05 / 18:05 = UTC 04:05 / 10:05
-    - cron: '5 4,10 * * *'
+    # Same as upstream (UTC 04:00 / 10:00 = SGT 12:00 / 18:00)
+    - cron: '0 4,10 * * *'
 
 jobs:
   build:
     name: glados/railgun checkin
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       actions: write
+
     strategy:
       matrix:
         python-version: [3.13]
+
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
     - name: Checkout Code
       uses: actions/checkout@v6
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests
         pip install pypushdeer
+
     - name: Running checkin
       run: |
         python checkin.py
@@ -48,8 +53,10 @@ jobs:
         GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
         GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
         GLADOS_VERBOSE: ${{ secrets.GLADOS_VERBOSE }}
+
     - name: Keep alive
       uses: liskin/gh-workflow-keepalive@v1
+
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@v2
       with:
