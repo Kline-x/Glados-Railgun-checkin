@@ -40,13 +40,17 @@
 |---|---------|---------|
 | `plan100` | 100 积分 | 10 天 |
 | `plan200` | 200 积分 | 30 天 |
-| `plan500` | 500 积分 | 100 天 (默认) |
+| `plan500` | 500 积分 | 100 天 |
 
-> 不配置时默认为 `plan500`，即积分达到 500 时自动兑换 100 天
+> 默认不配置时跳过自动兑换（防止未经确认扣除积分）；如需自动兑换请显式填写对应 plan。
 
-4. 手机推送（非必须）
+4. 消息通知（非必须，支持多通道同时推送）
 
-- 添加1个`repository secret`，命名为`PUSHDEER_SENDKEY`，其值对应 PushDeer key: ([获取地址](https://www.pushdeer.com/product.html))。
+- **PushDeer**：添加 secret `PUSHDEER_SENDKEY`，填写 PushDeer Key ([获取地址](https://www.pushdeer.com/product.html))。
+- **Server酱**：添加 secret `SERVERCHAN_SENDKEY`，填写 Server酱 SendKey。
+- **Webhook 通知**（飞书 / 钉钉 / 企业微信 / Discord / Generic）：
+  - 添加 secret `NOTIFY_WEBHOOK_URL`，填入机器人 Webhook 地址；
+  - （可选）添加 secret `NOTIFY_WEBHOOK_TYPE`，可选值 `auto`（默认自动识别）、`feishu`、`dingtalk`、`wecom`、`discord`、`generic`。
 
 ### **star**自己的仓库
 
