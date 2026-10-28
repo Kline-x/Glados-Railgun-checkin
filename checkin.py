@@ -69,6 +69,31 @@ PLATFORM_UA = {
 }
 
 
+def diagnose_cookie(cookie: str) -> List[str]:
+    """诊断 Cookie 格式问题"""
+    warnings = []
+    has_gld = "gld:sess=" in cookie
+    has_gld_sig = "gld:sess.sig=" in cookie
+    has_koa = "koa:sess=" in cookie
+    has_koa_sig = "koa:sess.sig=" in cookie
+
+    if has_koa and not has_gld:
+        warnings.append(
+            "检测到当前 Cookie 仍是旧版 koa:sess 格式。GLaDOS 官方已全面升级为 gld:sess / gld:sess.sig，旧凭据已被服务端吊销，请登录 glados.cloud 重新复制最新 Cookie。"
+        )
+    elif not has_gld and not has_koa:
+        warnings.append(
+            "未检测到有效 Session 凭据（缺少 gld:sess 或 koa:sess），请检查是否完整复制了 Cookie。"
+        )
+
+    if has_gld and not has_gld_sig:
+        warnings.append("Cookie 缺少 gld:sess.sig 签名，可能导致无法通过鉴权。")
+    elif has_koa and not has_koa_sig and not has_gld:
+        warnings.append("Cookie 缺少 koa:sess.sig 签名，可能导致无法通过鉴权。")
+
+    return warnings
+
+
 def log_method(func):
     """日志装饰器"""
 
@@ -112,12 +137,13 @@ class Config:
     ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
     ENV_VERBOSE = "GLADOS_VERBOSE"
     ENV_DOMAINS = "GLADOS_DOMAINS"
+    ENV_USER_AGENT = "GLADOS_USER_AGENT"
 
     """默认是否输出详细响应"""
     DEFAULT_VERBOSE = False
 
-    """默认检测域名列表（支持 glados.cloud 与 railgun.info 镜像）"""
-    DEFAULT_DOMAINS = ["glados.cloud", "railgun.info"]
+    """默认检测域名（仅针对 glados.cloud，去除非必要的 railgun.info）"""
+    DEFAULT_DOMAINS = ["glados.cloud"]
 
     """兑换计划列表"""
     EXCHANGE_PLANS = {
@@ -132,9 +158,11 @@ class Config:
         self.webhook_url: str = ""
         self.webhook_type: str = "auto"
         self.cookies_list: List[str] = []
+        self.cookie_warnings: List[str] = []
         self.exchange_plan: str = ""
         self.verbose: bool = self.DEFAULT_VERBOSE
         self.domains: List[str] = self.DEFAULT_DOMAINS.copy()
+        self.custom_ua: str = ""
         self._load_config()
 
     def _load_config(self) -> None:
@@ -147,10 +175,12 @@ class Config:
         exchange_plan_env = os.environ.get(self.ENV_EXCHANGE_PLAN)
         verbose_env = os.environ.get(self.ENV_VERBOSE)
         domains_env = os.environ.get(self.ENV_DOMAINS)
+        custom_ua_env = os.environ.get(self.ENV_USER_AGENT)
 
         self.push_key = push_key_env.strip() if push_key_env else ""
         self.serverchan_key = serverchan_key_env.strip() if serverchan_key_env else ""
         self.webhook_url = webhook_url_env.strip() if webhook_url_env else ""
+        self.custom_ua = custom_ua_env.strip() if custom_ua_env else ""
 
         allowed_webhook_types = {"auto", "generic", "feishu", "dingtalk", "wecom", "discord"}
         if webhook_type_env:
@@ -163,7 +193,6 @@ class Config:
             logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_COOKIES}' 未设置。")
             self.cookies_list = []
         else:
-            # 支持以 & 或换行符分隔多个账号 Cookie
             raw_entries = []
             for line in raw_cookies_env.replace("\r", "\n").split("\n"):
                 for item in line.split("&"):
@@ -173,6 +202,13 @@ class Config:
             self.cookies_list = raw_entries
             if not self.cookies_list:
                 raise ValueError(f"环境变量 '{self.ENV_COOKIES}' 已设置，但未包含任何有效的 Cookie。")
+
+            # 对所有 Cookie 执行前置格式诊断
+            for idx, c in enumerate(self.cookies_list, 1):
+                warns = diagnose_cookie(c)
+                for w in warns:
+                    logger.warning(f"{LogEmoji.COOKIE}[{idx}] {LogEmoji.WARNING} {w}")
+                    self.cookie_warnings.append(f"Cookie {idx}: {w}")
 
         # 默认不自动兑换，仅在显式配置有效计划时兑换
         if exchange_plan_env:
@@ -204,6 +240,7 @@ class Config:
         logger.info(f"{LogEmoji.INFO} 当前 PushDeer 推送: {'已配置' if self.push_key else '未配置'}。")
         logger.info(f"{LogEmoji.INFO} 当前 Server酱 推送: {'已配置' if self.serverchan_key else '未配置'}。")
         logger.info(f"{LogEmoji.INFO} 当前 Webhook 推送: {'已配置 (' + self.webhook_type + ')' if self.webhook_url else '未配置'}。")
+        logger.info(f"{LogEmoji.INFO} 自定义 User-Agent: {'已配置' if self.custom_ua else '未配置（使用设备自适应）'}。")
         logger.info(f"{LogEmoji.INFO} 自动兑换计划: {self.exchange_plan or '已关闭（默认）'}。")
         logger.info(f"{LogEmoji.INFO} 详细日志输出: {self.verbose}。")
 
@@ -216,10 +253,17 @@ class API:
     POINTS_URL = APIEndpoint.POINTS.value
     EXCHANGE_URL = APIEndpoint.EXCHANGE.value
 
-    def __init__(self, domain: str, cookie_index: int = 0, verbose: bool = False):
+    def __init__(
+        self,
+        domain: str,
+        cookie_index: int = 0,
+        verbose: bool = False,
+        custom_ua: str = "",
+    ):
         self.domain: str = domain
         self.cookie_index: int = cookie_index
         self.verbose: bool = verbose
+        self.custom_ua: str = custom_ua
         self.headers: Dict[str, str] = self._get_headers()
         self._device_ua_cache: Dict[str, str] = {}
         self.session = requests.Session()
@@ -258,9 +302,10 @@ class API:
 
     def _get_headers(self) -> Dict[str, str]:
         """获取默认请求头"""
+        default_ua = self.custom_ua or PLATFORM_UA["Windows"]
         return {
             "origin": f"https://{self.domain}",
-            "user-agent": PLATFORM_UA["Windows"],
+            "user-agent": default_ua,
         }
 
     def _log(self, level: str, emoji: str, message: str, force: bool = False) -> None:
@@ -326,8 +371,8 @@ class API:
         url = self._get_full_url(self.CHECKIN_URL)
         checkin_data = self._get_checkin_data()
 
-        # 起始 UA：优先复用已成功学得的设备 UA，否则使用默认 UA
-        start_ua = self._device_ua_cache.get("_last") or self.headers.get("user-agent")
+        # 起始 UA：用户自定义 UA > 历史学得设备 UA > 默认 UA
+        start_ua = self.custom_ua or self._device_ua_cache.get("_last") or self.headers.get("user-agent")
 
         raw = self._checkin_attempt(url, checkin_data, cookies, start_ua)
 
@@ -405,14 +450,14 @@ class API:
                         self._log(
                             "error",
                             LogEmoji.ERROR,
-                            f"设备平台不匹配 (loginDevice={login_device})，自适应重试后仍失败，请确认登录设备平台",
+                            f"设备平台不匹配 (loginDevice={login_device})，自适应重试后仍失败，建议在 Secret 中添加 GLADOS_USER_AGENT",
                             force=True,
                         )
                     else:
                         self._log(
                             "error",
                             LogEmoji.ERROR,
-                            f"设备平台不匹配 (loginDevice={login_device} 不在预置列表)，无法自动切换 UA",
+                            f"设备平台不匹配 (loginDevice={login_device} 不在预置列表)，建议在 Secret 中添加 GLADOS_USER_AGENT",
                             force=True,
                         )
                 else:
@@ -426,7 +471,7 @@ class API:
                 self._log(
                     "error",
                     LogEmoji.ERROR,
-                    f"无权限 (code=-2)：Cookie 可能已失效，请重新登录 {self.domain} 刷新 Cookie 并更新 Secret GLADOS_COOKIES",
+                    f"无权限 (code=-2)：Cookie 可能已失效，请重新登录 {self.domain} 获取包含 gld:sess 的最新 Cookie 更新到 GLADOS_COOKIES",
                     force=True,
                 )
             else:
@@ -759,7 +804,12 @@ class Checker:
     def _checkin_on_domain(self, cookie: str, cookie_idx: int, domain: str) -> CheckinResult:
         result = CheckinResult(cookie_idx, domain)
 
-        with API(domain, cookie_idx, verbose=self.config.verbose) as api:
+        with API(
+            domain,
+            cookie_idx,
+            verbose=self.config.verbose,
+            custom_ua=self.config.custom_ua,
+        ) as api:
             # 1. 查询剩余天数
             self._log(cookie_idx, domain, LogEmoji.STATUS, "查询剩余天数")
             days_str, status_code = api.get_status(cookie)
@@ -829,13 +879,23 @@ class Checker:
             )
 
         diagnostics = ""
+        diag_lines = []
+        if getattr(self.config, "cookie_warnings", None):
+            diag_lines.append("⚠️ Cookie 格式检测异常：")
+            for w in self.config.cookie_warnings:
+                diag_lines.append(f"• {w}")
+
         if fail_count > 0 and success_count == 0 and repeat_count == 0:
-            diagnostics = (
-                "⚠️ 诊断提示：\n"
-                "1. 若日志显示无权限(code=-2)，说明 Cookie 已失效或过期，请重新登录 glados.cloud 或 railgun.info 刷新 Cookie 并更新 Secret GLADOS_COOKIES；\n"
-                "2. 若日志显示设备不匹配(code=4)，已为您自动尝试多设备切换，若仍失败请确认抓取 Cookie 的设备环境；\n"
-                "3. 多域名已同时检测 glados.cloud 与 railgun.info。"
-            )
+            if not diag_lines:
+                diag_lines.append("⚠️ 诊断提示：")
+            diag_lines.extend([
+                "1. 若日志显示无权限(code=-2)，说明当前 Cookie 已失效。请在浏览器登录 glados.cloud，复制最新的 gld:sess 与 gld:sess.sig 凭证更新 Secret GLADOS_COOKIES；",
+                "2. 若日志显示设备不匹配(code=4)，已自动尝试设备切换；您也可在 Secret 中新增 GLADOS_USER_AGENT 填入当前浏览器的 navigator.userAgent；",
+                "3. 当前任务仅针对 glados.cloud 执行签到，已去除非必要的 railgun.info。",
+            ])
+
+        if diag_lines:
+            diagnostics = "\n".join(diag_lines)
 
         return {
             "title": title,

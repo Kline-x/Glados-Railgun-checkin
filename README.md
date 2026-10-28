@@ -24,15 +24,23 @@
 
 ![图片加载失败](imgs/2.png)
 
-- 点击第一个选项卡后在`Request Headers`下找到`Cookie`，右键复制cookie的值即可
+- 点击第一个选项卡后在`Request Headers`下找到`Cookie`，右键复制完整的 Cookie 值即可
 
-  > 参考格式：koa:sess=eyJ1c2xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxAwMH0=; koa:sess.sig=xJkOxxxxxxxxxxxxxxxtnM;
+  > ⚠️ 最新格式说明：GLaDOS 官方已全面升级鉴权凭据，格式为以 `gld:` 开头的成对 Cookie：  
+  > `gld:sess=xxxxxx; gld:sess.sig=yyyyyy`  
+  > （旧版的 `koa:sess` 凭证已被官方吊销，请确保复制完整包含 `gld:sess` 与 `gld:sess.sig` 的 Cookie）
 
 ![图片加载失败](imgs/3.png)
 
-- 多账号请在 `COOKIES` 中 添加多个 `cookies` 中间使用 `&`连接即可。（例如： `c1&c3&c3...`）
+- 多账号请在 `GLADOS_COOKIES` 中 添加多个 `cookies` 中间使用 `&` 或换行连接即可。
 
-3. 配置积分兑换策略（非必须）
+3. 自定义浏览器 User-Agent（非必须，推荐）
+
+- 脚本已内置多平台（macOS、Windows、iOS、Android）自适应切换重试机制；
+- 如需与您抓取 Cookie 的浏览器指纹完全一致，可添加 1 个 `repository secret`，命名为 `GLADOS_USER_AGENT`；
+- 获取方式：在抓取 Cookie 的浏览器控制台（F12 -> Console）输入 `navigator.userAgent` 并回车复制。
+
+4. 配置积分兑换策略（非必须）
 
 - 添加1个`repository secret`，命名为`GLADOS_EXCHANGE_PLAN`，配置自动兑换积分策略：
 
@@ -44,7 +52,7 @@
 
 > 默认不配置时跳过自动兑换（防止未经确认扣除积分）；如需自动兑换请显式填写对应 plan。
 
-4. 消息通知（非必须，支持多通道同时推送）
+5. 消息通知（非必须，支持多通道同时推送）
 
 - **PushDeer**：添加 secret `PUSHDEER_SENDKEY`，填写 PushDeer Key ([获取地址](https://www.pushdeer.com/product.html))。
 - **Server酱**：添加 secret `SERVERCHAN_SENDKEY`，填写 Server酱 SendKey。
